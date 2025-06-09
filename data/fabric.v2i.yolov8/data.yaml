@@ -1,0 +1,13 @@
+train: ../train/images
+val: ../valid/images
+test: ../test/images
+
+nc: 8
+names: ['acrylic', 'cotton', 'crepe', 'denim', 'leather', 'linen', 'nylon', 'silk']
+
+roboflow:
+  workspace: semester4
+  project: fabric-qxgmo-qeviu
+  version: 2
+  license: CC BY 4.0
+  url: https://universe.roboflow.com/semester4/fabric-qxgmo-qeviu/dataset/2
