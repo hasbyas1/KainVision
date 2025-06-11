@@ -4,12 +4,23 @@ import numpy as np
 import shutil
 from tqdm import tqdm
 
+# Current working directory
+base_dir = os.path.dirname(os.path.abspath(__file__))
+
+# Input directories
+INPUT_DIR = os.path.join(base_dir, "1base_dataset") # Path to base dataset
+
+# Output directory
+OUTPUT_DIR = os.path.join(base_dir, "2preprocessed_output_lbp") # Path to preprocessed dataset
+
+# ====================================================
+
 class FabricLBPPreprocessor:
     """
     Simple LBP preprocessing pipeline for fabric classification
     """
     
-    def __init__(self, input_dir="data", output_dir="preprocessed_data_lbp"):
+    def __init__(self, input_dir=INPUT_DIR, output_dir=OUTPUT_DIR):
         self.input_dir = input_dir
         self.output_dir = output_dir
         self.classes = self._get_classes()
@@ -117,7 +128,7 @@ class FabricLBPPreprocessor:
 
 def main():
     # Simple execution
-    preprocessor = FabricLBPPreprocessor(input_dir="1base_dataset", output_dir="2preprocessed_output_lbp")
+    preprocessor = FabricLBPPreprocessor()
     preprocessor.process_dataset()
 
 
