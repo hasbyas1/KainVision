@@ -5,7 +5,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.svm import SVC
 from sklearn.neighbors import KNeighborsClassifier
-from sklearn.metrics import classification_report, confusion_matrix, accuracy_score
+from sklearn.metrics import classification_report, confusion_matrix, accuracy_score, precision_score, recall_score, f1_score
 from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.base import clone
 import cv2
@@ -163,12 +163,25 @@ def evaluate_models(test_dir, feature_extractor, models, scaler, le, class_names
     
     test_results = {}
     
+    print("\n=== Model Performance Metrics ===")
     for model_name, model in models.items():
         y_pred = model.predict(X_test_scaled)
-        accuracy = accuracy_score(y_test_encoded, y_pred)
-        test_results[model_name] = {'accuracy': accuracy}
         
-        print(f"{model_name}: Test accuracy {accuracy:.3f}")
+        # Calculate all metrics
+        accuracy = accuracy_score(y_test_encoded, y_pred)
+        precision = precision_score(y_test_encoded, y_pred, average='macro', zero_division=0)
+        recall = recall_score(y_test_encoded, y_pred, average='macro', zero_division=0)
+        f1 = f1_score(y_test_encoded, y_pred, average='macro', zero_division=0)
+        
+        test_results[model_name] = {
+            'accuracy': accuracy,
+            'precision': precision,
+            'recall': recall,
+            'f1': f1
+        }
+        
+        # Print compact metrics
+        print(f"{model_name}: Acc={accuracy:.3f} Prec={precision:.3f} Rec={recall:.3f} F1={f1:.3f}")
         
         # Save confusion matrix
         plt.figure(figsize=(6, 5))
@@ -181,6 +194,8 @@ def evaluate_models(test_dir, feature_extractor, models, scaler, le, class_names
         cm_filename = f"{model_name.replace(' ', '_').replace('-', '')}_confusion_matrix.png"
         plt.savefig(os.path.join(OUTPUT_DIR, cm_filename), dpi=150, bbox_inches='tight')
         plt.close()
+    
+    print("=" * 45)
     
     return test_results
 
@@ -229,7 +244,6 @@ def main():
         
         trained_models, scaler, le = train_models(X_train, y_train, class_names)
         test_results = evaluate_models(TEST_DIR, lbp_extractor, trained_models, scaler, le, class_names)
-        create_performance_chart(test_results, OUTPUT_DIR)
         
         print(f"\nTraining completed! Models saved in: {OUTPUT_DIR}")
         

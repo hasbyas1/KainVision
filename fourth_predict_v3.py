@@ -6,6 +6,7 @@ import joblib
 import tkinter as tk
 from tkinter import filedialog, messagebox
 from PIL import Image, ImageTk
+from first_preprocessing_v3 import FabricLBPPreprocessor
 
 # Directory configuration
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -50,23 +51,20 @@ class LBPExtractor:
 def predict_fabric(image_path, extractor, model, scaler, le):
     """Predict fabric class using LBP"""
     try:
-        # Read and preprocess image
         image = cv2.imread(image_path)
         if image is None:
             return "Error: Cannot read image"
-        
+
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        image = cv2.resize(image, (224, 224))
-        image = image.astype(np.float32) / 255.0
-        
-        # Extract LBP features
-        features = extractor.extract_lbp_features(image)
-        
-        # Scale and predict
+
+        # Langsung panggil fungsi dari class
+        processed = FabricLBPPreprocessor().preprocess_for_lbp(image)
+
+        features = extractor.extract_lbp_features(processed)
         features_scaled = scaler.transform([features])
         pred_encoded = model.predict(features_scaled)
         pred_label = le.inverse_transform(pred_encoded)[0]
-        
+
         return pred_label
         
     except Exception as e:
