@@ -7,10 +7,15 @@ import tkinter as tk
 from tkinter import filedialog, messagebox
 from PIL import Image, ImageTk
 from first_preprocessing_v3 import FabricLBPPreprocessor
+import matplotlib.pyplot as plt
 
 # Directory configuration
 current_dir = os.path.dirname(os.path.abspath(__file__))
 model_dir = os.path.join(current_dir, "4model")
+step_output_dir = os.path.join(current_dir, "5output_step_by_step")
+
+# Create step-by-step output directory
+os.makedirs(step_output_dir, exist_ok=True)
 
 # Load models and preprocessors at startup
 try:
@@ -22,6 +27,58 @@ try:
 except FileNotFoundError as e:
     print(f"Error loading models: {e}")
     print("Make sure all model files exist in '4model' directory")
+
+class StepByStepPreprocessor(FabricLBPPreprocessor):
+    """Even more efficient - use original preprocess_for_lbp method and capture intermediate steps"""
+    
+    def preprocess_for_lbp_with_steps(self, image, filename_prefix="preprocessing"):
+        """
+        Modified version of original preprocess_for_lbp that saves each step
+        """
+        print(f"Starting preprocessing for: {filename_prefix}")
+        
+        # Step 1: Save original image
+        print("Step 1: Saving original image...")
+        self._save_step(image, filename_prefix, "01_original")
+        
+        # Step 2: Resize (using parent method)
+        print("Step 2: Resizing image...")
+        processed = self.resize_image(image, scale_factor=0.9)
+        self._save_step(processed, filename_prefix, "02_resized")
+        
+        # Step 3: Convert to grayscale
+        print("Step 3: Converting to grayscale...")
+        if len(processed.shape) == 3:
+            processed = cv2.cvtColor(processed, cv2.COLOR_RGB2GRAY)
+        self._save_step(processed, filename_prefix, "03_grayscale")
+        
+        # Step 4: Light Gaussian blur
+        print("Step 4: Applying Gaussian blur...")
+        processed = cv2.GaussianBlur(processed, (3, 3), 0.8)
+        self._save_step(processed, filename_prefix, "04_blurred")
+        
+        # Step 5: Adaptive normalization (using parent method)
+        print("Step 5: Applying adaptive normalization...")
+        processed = self.adaptive_normalization(processed)
+        self._save_step(processed, filename_prefix, "05_normalized")
+        
+        # Step 6: Mild CLAHE contrast enhancement
+        print("Step 6: Applying CLAHE contrast enhancement...")
+        clahe = cv2.createCLAHE(clipLimit=1.5, tileGridSize=(8, 8))
+        processed = clahe.apply(processed)
+        self._save_step(processed, filename_prefix, "06_final_contrast")
+        
+        print(f"All preprocessing steps saved in: {step_output_dir}")
+        return processed
+    
+    def _save_step(self, image, filename_prefix, step_name):
+        """Helper method to save preprocessing step"""
+        file_path = os.path.join(step_output_dir, f"{filename_prefix}_{step_name}.png")
+        if len(image.shape) == 3:
+            cv2.imwrite(file_path, cv2.cvtColor(image, cv2.COLOR_RGB2BGR))
+        else:
+            cv2.imwrite(file_path, image)
+        print(f"  - Saved: {filename_prefix}_{step_name}.png")
 
 class LBPExtractor:
     """Simple LBP feature extraction"""
@@ -48,8 +105,8 @@ class LBPExtractor:
                              range=(0, n_points + 2), density=True)
         return hist
 
-def predict_fabric(image_path, extractor, model, scaler, le):
-    """Predict fabric class using LBP"""
+def predict_fabric_with_steps(image_path, extractor, model, scaler, le):
+    """Predict fabric class using LBP with step-by-step preprocessing"""
     try:
         image = cv2.imread(image_path)
         if image is None:
@@ -57,7 +114,35 @@ def predict_fabric(image_path, extractor, model, scaler, le):
 
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
-        # Langsung panggil fungsi dari class
+        # Create filename prefix from image name
+        image_name = os.path.splitext(os.path.basename(image_path))[0]
+        filename_prefix = f"{image_name}"
+        
+        # Use the step-by-step preprocessor
+        preprocessor = StepByStepPreprocessor()
+        processed = preprocessor.preprocess_for_lbp_with_steps(image, filename_prefix)
+
+        # Extract LBP features
+        features = extractor.extract_lbp_features(processed)
+        features_scaled = scaler.transform([features])
+        pred_encoded = model.predict(features_scaled)
+        pred_label = le.inverse_transform(pred_encoded)[0]
+
+        return pred_label
+        
+    except Exception as e:
+        return f"Error: {e}"
+
+def predict_fabric(image_path, extractor, model, scaler, le):
+    """Original predict function (without step saving) - uses original preprocessing"""
+    try:
+        image = cv2.imread(image_path)
+        if image is None:
+            return "Error: Cannot read image"
+
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+
+        # Use original preprocessing method directly
         processed = FabricLBPPreprocessor().preprocess_for_lbp(image)
 
         features = extractor.extract_lbp_features(processed)
@@ -143,7 +228,7 @@ class SimpleFabricGUI:
         self.predict_all(file_path)
     
     def predict_all(self, image_path):
-        """Predict using all three models"""
+        """Predict using all three models with step-by-step preprocessing"""
         models = [
             ("Random Forest", self.rf_model),
             ("SVM", self.svm_model),
@@ -151,7 +236,22 @@ class SimpleFabricGUI:
         ]
         
         predictions = []
-        for name, model in models:
+        
+        # Show message that preprocessing is starting
+        self.result_label.config(text="Starting step-by-step preprocessing...\nClose each window to continue to next step.")
+        self.root.update()
+        
+        # Use step-by-step preprocessing for the first model
+        first_pred = predict_fabric_with_steps(image_path, self.extractor, models[0][1], 
+                                             self.scaler, self.le)
+        predictions.append(f"{models[0][0]}: {first_pred}")
+        
+        # Update GUI to show first prediction
+        self.result_label.config(text=f"Step-by-step completed!\n{models[0][0]}: {first_pred}\n\nContinuing with other models...")
+        self.root.update()
+        
+        # For the remaining models, use regular preprocessing
+        for name, model in models[1:]:
             pred = predict_fabric(image_path, self.extractor, model, self.scaler, self.le)
             predictions.append(f"{name}: {pred}")
         
@@ -159,6 +259,10 @@ class SimpleFabricGUI:
         pred_values = [p.split(": ")[1] for p in predictions if not p.startswith("Error")]
         if len(set(pred_values)) == 1 and pred_values:
             predictions.append(f"\n✓ Consensus: {pred_values[0]}")
+        
+        # Add file information
+        image_name = os.path.splitext(os.path.basename(image_path))[0]
+        predictions.append(f"\nSteps saved: {image_name}_01 to {image_name}_06")
         
         self.result_label.config(text="\n".join(predictions))
 
