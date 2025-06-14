@@ -125,8 +125,37 @@ class LBPEvaluator:
         # 2. Buat histogram visualization
         self._create_histogram_visualization(image_name, lbp_features, lbp_image, original_image, predictions)
         
+        # 3. TAMBAHAN: Simpan LBP pattern image saja
+        self._save_lbp_pattern_only(image_name, lbp_image)
+        
         print(f"LBP evaluation saved for: {image_name}")
     
+    def _save_lbp_pattern_only(self, image_name, lbp_image):
+        """Simpan hanya LBP pattern image dalam berbagai format"""
+        
+        # Format 1: Simple grayscale PNG
+        simple_path = os.path.join(self.evaluation_dir, f"{image_name}_lbp_pattern.png")
+        # Normalize LBP values to 0-255 range
+        lbp_normalized = ((lbp_image - lbp_image.min()) / (lbp_image.max() - lbp_image.min()) * 255).astype(np.uint8)
+        cv2.imwrite(simple_path, lbp_normalized)
+        print(f"LBP pattern (simple) saved: {simple_path}")
+        
+        # Format 2: Styled dengan matplotlib dan colorbar
+        styled_path = os.path.join(self.evaluation_dir, f"{image_name}_lbp_pattern_styled.png")
+        plt.figure(figsize=(8, 8))
+        im = plt.imshow(lbp_image, cmap='gray', interpolation='nearest')
+        plt.title(f'LBP Pattern - {image_name}', fontweight='bold', fontsize=16)
+        plt.colorbar(im, fraction=0.046, pad=0.04)
+        plt.axis('off')
+        plt.tight_layout()
+        plt.savefig(styled_path, dpi=300, bbox_inches='tight', facecolor='white', edgecolor='none')
+        plt.close()
+        print(f"LBP pattern (styled) saved: {styled_path}")
+        
+        # Format 3: Original vs LBP comparison
+        comparison_path = os.path.join(self.evaluation_dir, f"{image_name}_original_vs_lbp.png")
+        # This will be handled by _create_comparison method if needed
+        
     def _save_to_excel(self, image_name, lbp_features, predictions):
         """Simpan features LBP ke Excel"""
         
