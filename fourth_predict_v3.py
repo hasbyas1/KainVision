@@ -1,21 +1,25 @@
 import os
 import cv2
 import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
 from skimage import feature
 import joblib
 import tkinter as tk
 from tkinter import filedialog, messagebox
 from PIL import Image, ImageTk
 from first_preprocessing_v3 import FabricLBPPreprocessor
-import matplotlib.pyplot as plt
+from datetime import datetime
 
 # Directory configuration
 current_dir = os.path.dirname(os.path.abspath(__file__))
 model_dir = os.path.join(current_dir, "4model")
 step_output_dir = os.path.join(current_dir, "5output_step_by_step")
+evaluation_dir = os.path.join(step_output_dir, "evaluations")
 
-# Create step-by-step output directory
+# Create directories
 os.makedirs(step_output_dir, exist_ok=True)
+os.makedirs(evaluation_dir, exist_ok=True)
 
 # Load models and preprocessors at startup
 try:
@@ -103,14 +107,153 @@ class LBPExtractor:
         # Calculate histogram
         hist, _ = np.histogram(lbp.ravel(), bins=n_points + 2,
                              range=(0, n_points + 2), density=True)
-        return hist
+        return hist, lbp
+
+class LBPEvaluator:
+    """Class untuk mengevaluasi dan menyimpan hasil LBP"""
+    
+    def __init__(self, evaluation_dir):
+        self.evaluation_dir = evaluation_dir
+        os.makedirs(evaluation_dir, exist_ok=True)
+    
+    def save_lbp_evaluation(self, image_name, lbp_features, lbp_image, original_image, predictions):
+        """Simpan evaluasi LBP dalam bentuk Excel dan histogram"""
+        
+        # 1. Simpan ke Excel
+        self._save_to_excel(image_name, lbp_features, predictions)
+        
+        # 2. Buat histogram visualization
+        self._create_histogram_visualization(image_name, lbp_features, lbp_image, original_image, predictions)
+        
+        print(f"LBP evaluation saved for: {image_name}")
+    
+    def _save_to_excel(self, image_name, lbp_features, predictions):
+        """Simpan features LBP ke Excel"""
+        
+        # Prepare data
+        data = {
+            'image_name': [image_name],
+            'timestamp': [datetime.now().isoformat()],
+            'predicted_class_RF': [predictions.get('Random Forest', 'N/A')],
+            'predicted_class_SVM': [predictions.get('SVM', 'N/A')],
+            'predicted_class_KNN': [predictions.get('K-NN', 'N/A')]
+        }
+        
+        # Add LBP features
+        for i, feature_val in enumerate(lbp_features):
+            data[f'feature_{i:03d}'] = [round(feature_val, 6)]
+        
+        # Create DataFrame
+        df = pd.DataFrame(data)
+        
+        # Save to Excel
+        excel_path = os.path.join(self.evaluation_dir, f"{image_name}_lbp_features.xlsx")
+        
+        try:
+            with pd.ExcelWriter(excel_path, engine='openpyxl') as writer:
+                df.to_excel(writer, sheet_name='LBP_Features', index=False)
+                
+                # Add feature statistics sheet
+                feature_cols = [col for col in df.columns if col.startswith('feature_')]
+                feature_stats = df[feature_cols].T
+                feature_stats.columns = ['Value']
+                feature_stats['Bin_Index'] = range(len(feature_stats))
+                feature_stats = feature_stats[['Bin_Index', 'Value']]
+                feature_stats.to_excel(writer, sheet_name='Feature_Statistics', index=True)
+            
+            print(f"Excel saved: {excel_path}")
+            
+        except ImportError:
+            # Fallback to CSV
+            csv_path = excel_path.replace('.xlsx', '.csv')
+            df.to_csv(csv_path, index=False)
+            print(f"CSV saved (Excel not available): {csv_path}")
+    
+    def _create_histogram_visualization(self, image_name, lbp_features, lbp_image, original_image, predictions):
+        """Buat visualisasi histogram LBP"""
+        
+        fig, axes = plt.subplots(2, 2, figsize=(15, 12))
+        fig.suptitle(f'LBP Analysis - {image_name}', fontsize=16, fontweight='bold')
+        
+        # Plot 1: Original Image
+        ax1 = axes[0, 0]
+        if len(original_image.shape) == 3:
+            ax1.imshow(original_image)
+        else:
+            ax1.imshow(original_image, cmap='gray')
+        ax1.set_title('Original Image', fontweight='bold')
+        ax1.axis('off')
+        
+        # Plot 2: LBP Image
+        ax2 = axes[0, 1]
+        im = ax2.imshow(lbp_image, cmap='gray')
+        ax2.set_title('LBP Pattern Image', fontweight='bold')
+        ax2.axis('off')
+        plt.colorbar(im, ax=ax2, fraction=0.046, pad=0.04)
+        
+        # Plot 3: LBP Histogram
+        ax3 = axes[1, 0]
+        bars = ax3.bar(range(len(lbp_features)), lbp_features, 
+                       color='skyblue', alpha=0.7, edgecolor='black')
+        ax3.set_title('LBP Feature Histogram', fontweight='bold')
+        ax3.set_xlabel('LBP Bin Index')
+        ax3.set_ylabel('Frequency (Density)')
+        ax3.grid(True, alpha=0.3)
+        
+        # Highlight top 5 features
+        top_indices = np.argsort(lbp_features)[-5:]
+        for idx in top_indices:
+            bars[idx].set_color('red')
+            bars[idx].set_alpha(0.8)
+        
+        # Add value labels on top bars
+        for i, v in enumerate(lbp_features):
+            if i in top_indices:
+                ax3.text(i, v + 0.002, f'{v:.3f}', ha='center', va='bottom', 
+                        fontsize=8, fontweight='bold')
+        
+        # Plot 4: Predictions Summary
+        ax4 = axes[1, 1]
+        ax4.axis('off')
+        
+        # Create prediction text
+        pred_text = "Model Predictions:\n" + "="*20 + "\n"
+        for model, pred in predictions.items():
+            pred_text += f"{model}: {pred}\n"
+        
+        # Add feature statistics
+        pred_text += f"\nFeature Statistics:\n" + "="*20 + f"\n"
+        pred_text += f"Max value: {np.max(lbp_features):.4f}\n"
+        pred_text += f"Min value: {np.min(lbp_features):.4f}\n"
+        pred_text += f"Mean value: {np.mean(lbp_features):.4f}\n"
+        pred_text += f"Std deviation: {np.std(lbp_features):.4f}\n"
+        pred_text += f"Non-zero bins: {np.count_nonzero(lbp_features)}\n"
+        
+        # Top 3 features
+        top_3_indices = np.argsort(lbp_features)[-3:]
+        pred_text += f"\nTop 3 Features:\n" + "="*15 + f"\n"
+        for i, idx in enumerate(reversed(top_3_indices)):
+            pred_text += f"{i+1}. Bin {idx}: {lbp_features[idx]:.4f}\n"
+        
+        ax4.text(0.05, 0.95, pred_text, transform=ax4.transAxes, fontsize=11,
+                verticalalignment='top', fontfamily='monospace',
+                bbox=dict(boxstyle='round,pad=0.5', facecolor='lightgray', alpha=0.8))
+        
+        plt.tight_layout()
+        
+        # Save histogram
+        histogram_path = os.path.join(self.evaluation_dir, f"{image_name}_lbp_analysis.png")
+        plt.savefig(histogram_path, dpi=300, bbox_inches='tight')
+        plt.close()
+        
+        print(f"Histogram saved: {histogram_path}")
 
 def predict_fabric_with_steps(image_path, extractor, model, scaler, le):
     """Predict fabric class using LBP with step-by-step preprocessing"""
     try:
         image = cv2.imread(image_path)
         if image is None:
-            return "Error: Cannot read image"
+            return "Error: Cannot read image", None, None
 
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
@@ -123,15 +266,15 @@ def predict_fabric_with_steps(image_path, extractor, model, scaler, le):
         processed = preprocessor.preprocess_for_lbp_with_steps(image, filename_prefix)
 
         # Extract LBP features
-        features = extractor.extract_lbp_features(processed)
+        features, lbp_image = extractor.extract_lbp_features(processed)
         features_scaled = scaler.transform([features])
         pred_encoded = model.predict(features_scaled)
         pred_label = le.inverse_transform(pred_encoded)[0]
 
-        return pred_label
+        return pred_label, features, lbp_image
         
     except Exception as e:
-        return f"Error: {e}"
+        return f"Error: {e}", None, None
 
 def predict_fabric(image_path, extractor, model, scaler, le):
     """Original predict function (without step saving) - uses original preprocessing"""
@@ -145,7 +288,7 @@ def predict_fabric(image_path, extractor, model, scaler, le):
         # Use original preprocessing method directly
         processed = FabricLBPPreprocessor().preprocess_for_lbp(image)
 
-        features = extractor.extract_lbp_features(processed)
+        features, _ = extractor.extract_lbp_features(processed)
         features_scaled = scaler.transform([features])
         pred_encoded = model.predict(features_scaled)
         pred_label = le.inverse_transform(pred_encoded)[0]
@@ -160,6 +303,9 @@ class SimpleFabricGUI:
         self.root = root
         self.root.title("LBP Fabric Classifier")
         self.root.geometry("900x800")  # Much larger window
+        
+        # Initialize evaluator
+        self.evaluator = LBPEvaluator(evaluation_dir)
         
         # Load models
         self.load_models()
@@ -228,23 +374,27 @@ class SimpleFabricGUI:
         self.predict_all(file_path)
     
     def predict_all(self, image_path):
-        """Predict using all three models with step-by-step preprocessing"""
+        """Predict using all three models with step-by-step preprocessing and LBP evaluation"""
         models = [
             ("Random Forest", self.rf_model),
             ("SVM", self.svm_model),
             ("K-NN", self.knn_model)
         ]
         
-        predictions = []
+        predictions = {}
+        display_predictions = []
         
         # Show message that preprocessing is starting
         self.result_label.config(text="Starting step-by-step preprocessing...\nClose each window to continue to next step.")
         self.root.update()
         
         # Use step-by-step preprocessing for the first model
-        first_pred = predict_fabric_with_steps(image_path, self.extractor, models[0][1], 
-                                             self.scaler, self.le)
-        predictions.append(f"{models[0][0]}: {first_pred}")
+        first_pred, lbp_features, lbp_image = predict_fabric_with_steps(
+            image_path, self.extractor, models[0][1], self.scaler, self.le
+        )
+        
+        predictions[models[0][0]] = first_pred
+        display_predictions.append(f"{models[0][0]}: {first_pred}")
         
         # Update GUI to show first prediction
         self.result_label.config(text=f"Step-by-step completed!\n{models[0][0]}: {first_pred}\n\nContinuing with other models...")
@@ -253,18 +403,38 @@ class SimpleFabricGUI:
         # For the remaining models, use regular preprocessing
         for name, model in models[1:]:
             pred = predict_fabric(image_path, self.extractor, model, self.scaler, self.le)
-            predictions.append(f"{name}: {pred}")
+            predictions[name] = pred
+            display_predictions.append(f"{name}: {pred}")
         
         # Check consensus
-        pred_values = [p.split(": ")[1] for p in predictions if not p.startswith("Error")]
+        pred_values = [p for p in predictions.values() if not p.startswith("Error")]
         if len(set(pred_values)) == 1 and pred_values:
-            predictions.append(f"\n✓ Consensus: {pred_values[0]}")
+            display_predictions.append(f"\n✓ Consensus: {pred_values[0]}")
+        
+        # Save LBP evaluation if we have valid features
+        if lbp_features is not None and lbp_image is not None:
+            try:
+                # Load original image for evaluation
+                original_image = cv2.imread(image_path)
+                original_image = cv2.cvtColor(original_image, cv2.COLOR_BGR2RGB)
+                
+                # Get image name
+                image_name = os.path.splitext(os.path.basename(image_path))[0]
+                
+                # Save evaluation
+                self.evaluator.save_lbp_evaluation(
+                    image_name, lbp_features, lbp_image, original_image, predictions
+                )
+                
+            except Exception as e:
+                display_predictions.append(f"\n⚠️ Evaluation save failed: {str(e)}")
         
         # Add file information
         image_name = os.path.splitext(os.path.basename(image_path))[0]
-        predictions.append(f"\nSteps saved: {image_name}_01 to {image_name}_06")
+        display_predictions.append(f"\nSteps saved: {image_name}_01 to {image_name}_06")
+        display_predictions.append(f"Evaluation saved in: 5output_step_by_step/evaluations/")
         
-        self.result_label.config(text="\n".join(predictions))
+        self.result_label.config(text="\n".join(display_predictions))
 
 def main():
     root = tk.Tk()

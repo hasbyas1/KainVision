@@ -1,0 +1,19 @@
+1. Install library Berikut Terlebih Dahulu
+
+pip install numpy
+pip install matplotlib
+pip install scikit-learn
+pip install scikit-image
+pip install seaborn
+pip install tqdm
+pip install joblib
+pip install opencv-python
+
+2. Ekstrak compressed/FabricDataset3.rar
+2. Pindahkan semua isinya ke folder 1base_dataset
+3. Jalankan program-program berikut secara berurutan 
+
+first_preprocessing_v3
+second_split_v3
+third_training_v3
+fourth_predict_v3
